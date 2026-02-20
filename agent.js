@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { toolDefinitions, executeTool } from "./tools.js";
 
 const client = new Anthropic();
+const MAX_TURNS = 25;
 
 const SYSTEM_PROMPT = `You are a software engineering agent embedded in a Reddit-style feedback platform. Users submit feature requests and bug reports, and when a submission receives enough upvotes, you are dispatched to analyze it and potentially implement it.
 
@@ -43,8 +44,31 @@ When a user's feedback has been implemented, your job is to post a warm, non-tec
 
 Never use developer terminology like "merged," "PR," "repository," "deploy," or "codebase." Instead say things like "your suggestion has been made live" or "we've updated the site based on your idea."`;
 
+async function callWithRetry(createFn, logPrefix) {
+  const delays = [1000, 2000, 4000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await createFn();
+    } catch (err) {
+      const status = err?.status || err?.error?.status;
+      const retryable =
+        status === 429 || status === 500 || status === 503 ||
+        err.code === "ECONNRESET" || err.code === "ETIMEDOUT" || err.code === "ENOTFOUND";
+
+      if (!retryable || attempt === delays.length) {
+        throw err;
+      }
+
+      const delay = delays[attempt];
+      console.log(`${logPrefix} ⚠️  API error (${status || err.code}), retrying in ${delay}ms (attempt ${attempt + 1}/${delays.length})`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 export async function runAgent(submission) {
-  console.log(`\n🤖 Agent starting for submission: "${submission.title}"`);
+  const sub = `[sub:${submission.id}]`;
+  console.log(`\n${sub} 🤖 Agent starting for submission: "${submission.title}"`);
 
   const messages = [
     {
@@ -61,14 +85,27 @@ Please review this submission, explore the codebase, and take appropriate action
     },
   ];
 
+  let turn = 0;
   while (true) {
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8192,
-      system: SYSTEM_PROMPT,
-      tools: toolDefinitions,
-      messages,
-    });
+    turn++;
+    if (turn > MAX_TURNS) {
+      console.error(`${sub} ❌ Agent exceeded max turns (${MAX_TURNS}), aborting`);
+      throw new Error(`Agent exceeded max turns (${MAX_TURNS}) for submission ${submission.id}`);
+    }
+
+    const response = await callWithRetry(
+      () =>
+        client.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 16384,
+          system: SYSTEM_PROMPT,
+          tools: toolDefinitions,
+          messages,
+        }),
+      sub
+    );
+
+    console.log(`${sub} 📊 Turn ${turn}: stop_reason=${response.stop_reason}, usage=${JSON.stringify(response.usage)}`);
 
     // Push the full assistant response onto history
     messages.push({ role: "assistant", content: response.content });
@@ -76,7 +113,7 @@ Please review this submission, explore the codebase, and take appropriate action
     if (response.stop_reason === "end_turn") {
       const textBlocks = response.content.filter((b) => b.type === "text");
       const finalText = textBlocks.map((b) => b.text).join("\n");
-      console.log(`\n✅ Agent finished for "${submission.title}"`);
+      console.log(`\n${sub} ✅ Agent finished for "${submission.title}" in ${turn} turns`);
       return finalText;
     }
 
@@ -86,7 +123,7 @@ Please review this submission, explore the codebase, and take appropriate action
 
     if (toolUseBlocks.length === 0 && response.stop_reason !== "end_turn") {
       console.log(
-        `  ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
+        `${sub}   ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
       );
       messages.push({
         role: "user",
@@ -98,32 +135,30 @@ Please review this submission, explore the codebase, and take appropriate action
     if (toolUseBlocks.length > 0) {
       if (response.stop_reason === "max_tokens") {
         console.log(
-          `  ⚠️  Response hit max_tokens mid-tool-use, returning errors for incomplete calls`
+          `${sub}   ⚠️  Response hit max_tokens mid-tool-use, executing complete tool blocks and prompting continuation`
         );
       }
 
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
-        if (response.stop_reason === "max_tokens") {
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: "Error: Response was truncated (max_tokens). This tool call may be incomplete. Please retry with a simpler approach or fewer tools at once.",
-            is_error: true,
-          });
-        } else {
-          console.log(`  🔧 Tool: ${toolUse.name}`);
-          const result = await executeTool(toolUse.name, toolUse.input);
-          const preview =
-            result.length > 200 ? result.substring(0, 200) + "…" : result;
-          console.log(`     ↳ ${preview}`);
+        console.log(`${sub}   🔧 Tool: ${toolUse.name}`);
+        const result = await executeTool(toolUse.name, toolUse.input);
+        const preview =
+          result.length > 200 ? result.substring(0, 200) + "…" : result;
+        console.log(`${sub}      ↳ ${preview}`);
 
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: result,
-          });
-        }
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result,
+        });
+      }
+
+      if (response.stop_reason === "max_tokens") {
+        toolResults.push({
+          type: "text",
+          text: "Note: Your previous response was truncated due to max_tokens. The tool calls above were executed successfully. If you had additional tool calls or actions planned, please continue.",
+        });
       }
 
       messages.push({ role: "user", content: toolResults });
@@ -132,8 +167,9 @@ Please review this submission, explore the codebase, and take appropriate action
 }
 
 export async function markSubmissionComplete(submissionId, prUrl) {
+  const sub = `[sub:${submissionId}]`;
   console.log(
-    `\n🎉 Marking submission ${submissionId} as complete (PR: ${prUrl})`
+    `\n${sub} 🎉 Marking submission ${submissionId} as complete (PR: ${prUrl})`
   );
 
   const messages = [
@@ -149,14 +185,27 @@ Please:
     },
   ];
 
+  let turn = 0;
   while (true) {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 8192,
-      system: COMPLETION_PROMPT,
-      tools: toolDefinitions,
-      messages,
-    });
+    turn++;
+    if (turn > MAX_TURNS) {
+      console.error(`${sub} ❌ Completion agent exceeded max turns (${MAX_TURNS}), aborting`);
+      throw new Error(`Completion agent exceeded max turns (${MAX_TURNS}) for submission ${submissionId}`);
+    }
+
+    const response = await callWithRetry(
+      () =>
+        client.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 8192,
+          system: COMPLETION_PROMPT,
+          tools: toolDefinitions,
+          messages,
+        }),
+      sub
+    );
+
+    console.log(`${sub} 📊 Turn ${turn}: stop_reason=${response.stop_reason}, usage=${JSON.stringify(response.usage)}`);
 
     messages.push({ role: "assistant", content: response.content });
 
@@ -170,7 +219,7 @@ Please:
 
     if (toolUseBlocks.length === 0 && response.stop_reason !== "end_turn") {
       console.log(
-        `  ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
+        `${sub}   ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
       );
       messages.push({
         role: "user",
@@ -180,33 +229,37 @@ Please:
     }
 
     if (toolUseBlocks.length > 0) {
+      if (response.stop_reason === "max_tokens") {
+        console.log(
+          `${sub}   ⚠️  Response hit max_tokens mid-tool-use, executing complete tool blocks and prompting continuation`
+        );
+      }
+
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
-        if (response.stop_reason === "max_tokens") {
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: "Error: Response was truncated (max_tokens). This tool call may be incomplete. Please retry with a simpler approach or fewer tools at once.",
-            is_error: true,
-          });
-        } else {
-          console.log(`  🔧 Tool: ${toolUse.name}`);
-          const result = await executeTool(toolUse.name, toolUse.input);
-          const preview =
-            result.length > 200 ? result.substring(0, 200) + "…" : result;
-          console.log(`     ↳ ${preview}`);
+        console.log(`${sub}   🔧 Tool: ${toolUse.name}`);
+        const result = await executeTool(toolUse.name, toolUse.input);
+        const preview =
+          result.length > 200 ? result.substring(0, 200) + "…" : result;
+        console.log(`${sub}      ↳ ${preview}`);
 
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: result,
-          });
-        }
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result,
+        });
+      }
+
+      if (response.stop_reason === "max_tokens") {
+        toolResults.push({
+          type: "text",
+          text: "Note: Your previous response was truncated due to max_tokens. The tool calls above were executed successfully. If you had additional tool calls or actions planned, please continue.",
+        });
       }
 
       messages.push({ role: "user", content: toolResults });
     }
   }
 
-  console.log(`✅ Submission ${submissionId} marked as complete.`);
+  console.log(`${sub} ✅ Submission ${submissionId} marked as complete in ${turn} turns.`);
 }

@@ -14,6 +14,20 @@ const WEBHOOK_SECRET = process.env.AGENT_WEBHOOK_SECRET;
 
 const processedIds = new Set();
 const inProgressIds = new Set();
+const PROCESSED_IDS_MAX = 1000;
+
+function capProcessedIds() {
+  if (processedIds.size > PROCESSED_IDS_MAX) {
+    const toRemove = Math.floor(processedIds.size / 2);
+    let removed = 0;
+    for (const id of processedIds) {
+      if (removed >= toRemove) break;
+      processedIds.delete(id);
+      removed++;
+    }
+    console.log(`[cleanup] Pruned ${removed} entries from processedIds (now ${processedIds.size})`);
+  }
+}
 
 // --- Webhook: feedback submitted or upvoted ---
 app.post("/webhook/feedback", (req, res) => {
@@ -56,13 +70,14 @@ app.post("/webhook/feedback", (req, res) => {
     .then(() => {
       inProgressIds.delete(submission.id);
       processedIds.add(submission.id);
+      capProcessedIds();
       console.log(`  ✅ Agent completed for submission ${submission.id}`);
     })
     .catch((err) => {
       inProgressIds.delete(submission.id);
       console.error(
         `  ❌ Agent failed for submission ${submission.id}:`,
-        err.message
+        err
       );
     });
 });
@@ -83,7 +98,7 @@ app.post("/webhook/pr-merged", (req, res) => {
   markSubmissionComplete(submission_id, pr_url).catch((err) => {
     console.error(
       `  ❌ Failed to mark submission ${submission_id} complete:`,
-      err.message
+      err
     );
   });
 });
@@ -97,7 +112,7 @@ app.post("/test", (req, res) => {
 
   runAgent(submission)
     .then(() => console.log(`  ✅ Test agent run completed`))
-    .catch((err) => console.error(`  ❌ Test agent run failed:`, err.message));
+    .catch((err) => console.error(`  ❌ Test agent run failed:`, err));
 });
 
 // --- Health check ---
