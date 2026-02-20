@@ -5,7 +5,7 @@ import { runAgent, markSubmissionComplete } from "./agent.js";
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 const VOTE_THRESHOLD = parseInt(process.env.VOTE_THRESHOLD || "1", 10);
 const WEBHOOK_SECRET = process.env.AGENT_WEBHOOK_SECRET;
 

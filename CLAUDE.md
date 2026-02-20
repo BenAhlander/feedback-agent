@@ -9,7 +9,7 @@ This is an agentic feedback review service. It receives webhooks from a Next.js/
 ## Running
 
 ```bash
-node server.js        # starts Express on PORT (default 3001)
+node server.js        # starts Express on PORT (default 3000)
 ```
 
 No build step. No test suite yet. ES modules throughout (`"type": "module"` in package.json).
@@ -51,4 +51,4 @@ All configured via `.env` (loaded by `dotenv/config` at the top of server.js):
 - `APP_API_URL` — base URL of the Next.js app API (e.g. `https://myapp.vercel.app/api`)
 - `APP_API_SECRET` — bearer token for agent → app callbacks
 - `VOTE_THRESHOLD` — minimum upvotes before agent acts (default 1)
-- `PORT` — server port (default 3001)
+- `PORT` — server port (default 3000)

@@ -37,7 +37,7 @@ AGENT_WEBHOOK_SECRET=your-shared-secret
 APP_API_URL=https://myapp.vercel.app/api
 APP_API_SECRET=your-app-secret
 VOTE_THRESHOLD=1
-PORT=3001
+PORT=3000
 ```
 
 ### Run
@@ -49,7 +49,7 @@ node server.js
 For external webhooks from a deployed Next.js app, expose the server with ngrok:
 
 ```bash
-ngrok http 3001
+ngrok http 3000
 ```
 
 ## API Endpoints
@@ -71,7 +71,7 @@ Called when a draft PR created by the agent gets merged. The agent posts a compl
 No auth required. Pass a submission object directly to trigger the agent — useful for local development.
 
 ```bash
-curl -X POST http://localhost:3001/test \
+curl -X POST http://localhost:3000/test \
   -H "Content-Type: application/json" \
   -d '{"id": "1", "title": "Change button color to blue", "description": "The submit button should be blue instead of gray", "upvotes": 5}'
 ```
