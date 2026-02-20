@@ -120,20 +120,6 @@ server.on('error', (err) => {
   console.error(`[server] Error: ${err.message}`);
 });
 
-server.on('close', () => {
-  console.log('[server] Server closed');
-});
-
-process.on('SIGTERM', () => {
-  console.log('[process] Received SIGTERM');
-  server.close(() => process.exit(0));
-});
-
-process.on('SIGINT', () => {
-  console.log('[process] Received SIGINT');
-  server.close(() => process.exit(0));
-});
-
 process.on('uncaughtException', (err) => {
   console.error('[process] Uncaught exception:', err);
 });
