@@ -107,7 +107,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Feedback Agent server running on port ${PORT}`);
   console.log(`   Vote threshold: ${VOTE_THRESHOLD}`);
   console.log(`   Make sure ngrok is running if you need external webhooks!\n`);
