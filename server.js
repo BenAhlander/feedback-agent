@@ -5,6 +5,9 @@ import { runAgent, markSubmissionComplete } from "./agent.js";
 const app = express();
 app.use(express.json());
 
+console.log(`[startup] Node ${process.version}, pid ${process.pid}`);
+console.log(`[startup] ENV: PORT=${process.env.PORT}, VOTE_THRESHOLD=${process.env.VOTE_THRESHOLD}`);
+
 const PORT = process.env.PORT || 3000;
 const VOTE_THRESHOLD = parseInt(process.env.VOTE_THRESHOLD || "1", 10);
 const WEBHOOK_SECRET = process.env.AGENT_WEBHOOK_SECRET;
@@ -107,8 +110,34 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Feedback Agent server running on port ${PORT}`);
   console.log(`   Vote threshold: ${VOTE_THRESHOLD}`);
   console.log(`   Make sure ngrok is running if you need external webhooks!\n`);
+});
+
+server.on('error', (err) => {
+  console.error(`[server] Error: ${err.message}`);
+});
+
+server.on('close', () => {
+  console.log('[server] Server closed');
+});
+
+process.on('SIGTERM', () => {
+  console.log('[process] Received SIGTERM');
+  server.close(() => process.exit(0));
+});
+
+process.on('SIGINT', () => {
+  console.log('[process] Received SIGINT');
+  server.close(() => process.exit(0));
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] Unhandled rejection:', reason);
 });
