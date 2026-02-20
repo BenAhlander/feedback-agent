@@ -299,6 +299,8 @@ export async function reviewSubmission(submissionId) {
   ];
 
   let turn = 0;
+  let commentPosted = false;
+  let didUpvote = false;
   while (true) {
     turn++;
     if (turn > MAX_TURNS) {
@@ -321,6 +323,14 @@ export async function reviewSubmission(submissionId) {
     console.log(`${sub} 📊 Turn ${turn}: stop_reason=${response.stop_reason}, usage=${JSON.stringify(response.usage)}`);
 
     messages.push({ role: "assistant", content: response.content });
+
+    // Log the agent's reasoning text (explains upvote decision, etc.)
+    const textBlocks = response.content.filter((b) => b.type === "text");
+    for (const block of textBlocks) {
+      if (block.text.trim()) {
+        console.log(`${sub} 💭 Agent: ${block.text.trim()}`);
+      }
+    }
 
     if (response.stop_reason === "end_turn") {
       break;
@@ -351,10 +361,22 @@ export async function reviewSubmission(submissionId) {
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
         console.log(`${sub}   🔧 Tool: ${toolUse.name}`);
+
+        if (toolUse.name === "post_comment") {
+          console.log(`${sub}   📝 Comment: ${toolUse.input.body}`);
+        }
+        if (toolUse.name === "upvote_submission") {
+          didUpvote = true;
+        }
+
         const result = await executeTool(toolUse.name, toolUse.input);
         const preview =
           result.length > 200 ? result.substring(0, 200) + "…" : result;
         console.log(`${sub}      ↳ ${preview}`);
+
+        if (toolUse.name === "post_comment" && !result.startsWith("Error")) {
+          commentPosted = true;
+        }
 
         toolResults.push({
           type: "tool_result",
@@ -374,5 +396,10 @@ export async function reviewSubmission(submissionId) {
     }
   }
 
-  console.log(`${sub} ✅ Review comment posted for submission ${submissionId} in ${turn} turns.`);
+  console.log(`${sub} 👍 Upvoted: ${didUpvote ? "yes" : "no"}`);
+  if (commentPosted) {
+    console.log(`${sub} ✅ Review complete for submission ${submissionId} in ${turn} turns.`);
+  } else {
+    console.log(`${sub} ⚠️  Review finished but no comment was posted for submission ${submissionId} (${turn} turns).`);
+  }
 }
