@@ -59,6 +59,60 @@ export const toolDefinitions = [
     },
   },
   {
+    name: "get_submission",
+    description:
+      "Fetch a single feedback submission by ID, including all its comments. Use this to read the original submission details or check what comments have already been posted.",
+    input_schema: {
+      type: "object",
+      properties: {
+        submission_id: {
+          type: "string",
+          description: "The ID of the submission to fetch.",
+        },
+      },
+      required: ["submission_id"],
+    },
+  },
+  {
+    name: "get_comments",
+    description:
+      "Fetch all comments on a feedback submission, ordered by creation time. Use this to check what has already been said before posting a new comment.",
+    input_schema: {
+      type: "object",
+      properties: {
+        submission_id: {
+          type: "string",
+          description: "The ID of the submission to fetch comments for.",
+        },
+      },
+      required: ["submission_id"],
+    },
+  },
+  {
+    name: "search_submissions",
+    description:
+      "List feedback submissions with optional filters for status and minimum upvote count. Useful for finding submissions that need processing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          description:
+            "Filter by status (open, under_review, in_progress, completed, declined).",
+        },
+        min_upvotes: {
+          type: "number",
+          description: "Minimum upvote score to include.",
+        },
+        limit: {
+          type: "number",
+          description: "Max results to return (1-200, default 50).",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: "post_comment",
     description:
       "Post a public comment on a feedback submission. Comments are visible to users so they should be warm and clear.",
@@ -188,6 +242,59 @@ async function searchFiles({ pattern }) {
   }
 }
 
+async function getSubmission({ submission_id }) {
+  try {
+    const res = await fetch(`${appApiUrl}/submissions/${submission_id}`, {
+      headers: appHeaders,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return `Error fetching submission (${res.status}): ${text}`;
+    }
+    const data = await res.json();
+    return JSON.stringify(data, null, 2);
+  } catch (err) {
+    return `Error fetching submission: ${err.message}`;
+  }
+}
+
+async function getComments({ submission_id }) {
+  try {
+    const res = await fetch(
+      `${appApiUrl}/submissions/${submission_id}/comments`,
+      { headers: appHeaders }
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      return `Error fetching comments (${res.status}): ${text}`;
+    }
+    const data = await res.json();
+    return JSON.stringify(data, null, 2);
+  } catch (err) {
+    return `Error fetching comments: ${err.message}`;
+  }
+}
+
+async function searchSubmissions({ status, min_upvotes, limit }) {
+  try {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (min_upvotes != null) params.set("min_upvotes", String(min_upvotes));
+    if (limit != null) params.set("limit", String(limit));
+    const res = await fetch(`${appApiUrl}/submissions?${params}`, {
+      headers: appHeaders,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return `Error searching submissions (${res.status}): ${text}`;
+    }
+    const data = await res.json();
+    return JSON.stringify(data, null, 2);
+  } catch (err) {
+    return `Error searching submissions: ${err.message}`;
+  }
+}
+
 async function postComment({ submission_id, body, status }) {
   try {
     const payload = { body, is_agent_comment: true };
@@ -306,6 +413,9 @@ const toolHandlers = {
   list_directory: listDirectory,
   read_file: readFile,
   search_files: searchFiles,
+  get_submission: getSubmission,
+  get_comments: getComments,
+  search_submissions: searchSubmissions,
   post_comment: postComment,
   update_status: updateStatus,
   create_pull_request: createPullRequest,

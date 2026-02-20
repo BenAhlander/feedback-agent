@@ -22,7 +22,7 @@ Three files, each with a single responsibility:
 - **agent.js** — Agentic loop. `runAgent(submission)` sends messages to Claude in a loop: on `tool_use` stop reason, executes all tool blocks and feeds results back; on `end_turn`, returns the final text. `markSubmissionComplete(submissionId, prUrl)` is a single-turn variant for post-merge cleanup.
 - **tools.js** — Tool definitions and execution. Exports `toolDefinitions` (Anthropic tool schema array) and `executeTool(toolName, toolInput)`. Tools fall into two categories:
   - **GitHub tools** (via Octokit): `list_directory`, `read_file`, `search_files`, `create_pull_request` — these operate on the repo specified by `GITHUB_OWNER`/`GITHUB_REPO` env vars.
-  - **App callback tools** (via fetch to `APP_API_URL`): `post_comment`, `update_status` — these call back into the Next.js app using `APP_API_SECRET` bearer auth.
+  - **App callback tools** (via fetch to `APP_API_URL`): `get_submission`, `get_comments`, `search_submissions`, `post_comment`, `update_status` — these call back into the Next.js app using `APP_API_SECRET` bearer auth.
 
 All tools return strings and never throw; errors are caught and returned as descriptive strings.
 
@@ -52,3 +52,7 @@ All configured via `.env` (loaded by `dotenv/config` at the top of server.js):
 - `APP_API_SECRET` — bearer token for agent → app callbacks
 - `VOTE_THRESHOLD` — minimum upvotes before agent acts (default 1)
 - `PORT` — server port (default 3000)
+
+## Docs
+
+- **API.md** — Documents every endpoint in `server.js` (request/response schemas, auth, behavior). Keep this file in sync whenever endpoints are added, removed, or changed.

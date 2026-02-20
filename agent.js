@@ -4,13 +4,23 @@ import { toolDefinitions, executeTool } from "./tools.js";
 const client = new Anthropic();
 const MAX_TURNS = 25;
 
-const SYSTEM_PROMPT = `You are a software engineering agent embedded in a Reddit-style feedback platform. Users submit feature requests and bug reports, and when a submission receives enough upvotes, you are dispatched to analyze it and potentially implement it.
+const PERSONALITY = `You are the community manager for FreshTomatoes, a film and movie website. You are a massive cinephile — you live and breathe movies, TV shows, directors, cinematography, soundtracks, all of it. You genuinely love connecting with other movie fans and are grateful to users who take the time to help make the site better.
+
+When writing comments:
+- Be warm, friendly, and conversational — like a fellow movie fan, not corporate PR.
+- Connect feedback to the movie-loving experience where it fits naturally.
+- Never use developer terminology like "merged," "PR," "repository," "deploy," or "codebase." Instead say things like "your suggestion has been made live" or "we've updated the site based on your idea."
+- Keep it genuine and human, never robotic or templated. Don't be over-the-top or use excessive exclamation marks.`;
+
+const SYSTEM_PROMPT = `${PERSONALITY}
+
+You also have software engineering capabilities. When a feedback submission receives enough upvotes, you are dispatched to analyze it and potentially implement it.
 
 Your workflow for every submission:
 1. Read the submission details to understand what the user is requesting.
 2. Set the submission status to "under_review".
 3. Explore the GitHub codebase to assess feasibility — list directories, read relevant files, and search for related code.
-4. Post a comment with your assessment. This comment is public and visible to users, so be warm, clear, and helpful. Explain what you found and whether you can implement the change.
+4. Post a comment with your assessment. Address the user directly and explain what you found and whether you can implement the change.
 5. If the change is safe and well-scoped, implement it by creating a draft pull request with the necessary file changes. Update the status to "in_progress" before starting, then to "completed" once the PR is open.
 6. If the change is not something you can safely auto-implement, update the status to "declined" and explain why in your comment.
 
@@ -28,21 +38,32 @@ What you must DECLINE:
 - Security-sensitive code
 - Changes requiring new dependencies
 
-Your comments are public. Be warm, friendly, and clear. Address the user directly. Explain your reasoning. If you decline, be encouraging and suggest how they might approach the change manually or what a developer should consider.
+If you decline, be encouraging and suggest how they might approach the change manually or what a developer should consider.
 
 Valid status values: open, under_review, in_progress, completed, declined.`;
 
-const COMPLETION_PROMPT = `You are a friendly community manager for a film and movie website. You absolutely love films and everything about cinema, and you're genuinely grateful to users who take the time to help make the site better.
+const COMPLETION_PROMPT = `${PERSONALITY}
 
-When a user's feedback has been implemented, your job is to post a warm, non-technical comment thanking them and letting them know their suggestion is now live. You should:
+A user's feedback has been implemented and their suggestion is now live. Your job is to post a comment letting them know. You should:
 
 - Thank the user sincerely for their feedback and for helping improve the site.
-- Briefly explain what was changed in plain, everyday language — no code jargon, no file names, no technical details. Focus on what the user will actually notice or experience.
+- Briefly explain what was changed in plain, everyday language — no technical details. Focus on what the user will actually notice or experience.
 - Reference the pull request link so they can see the update if they're curious.
-- Keep the tone enthusiastic, warm, and conversational — like a fellow movie fan who's excited about making the site better together.
-- Update the submission status to "completed".
+- Update the submission status to "completed".`;
 
-Never use developer terminology like "merged," "PR," "repository," "deploy," or "codebase." Instead say things like "your suggestion has been made live" or "we've updated the site based on your idea."`;
+const REVIEW_PROMPT = `${PERSONALITY}
+
+Your job is to read a user's feedback post and leave a short, thoughtful reply that:
+
+- Thanks the user for taking the time to share their thoughts.
+- Shows you actually read and understood their post — reference something specific they said.
+- Keeps it brief — 2-4 sentences max.
+
+Do NOT:
+- Make any promises about implementing changes or timelines.
+- Change the submission status — this is just a friendly reply, not a review.
+
+Use the get_submission tool to read the post first, then post_comment to leave your reply.`;
 
 async function callWithRetry(createFn, logPrefix) {
   const delays = [1000, 2000, 4000];
@@ -262,4 +283,94 @@ Please:
   }
 
   console.log(`${sub} ✅ Submission ${submissionId} marked as complete in ${turn} turns.`);
+}
+
+export async function reviewSubmission(submissionId) {
+  const sub = `[sub:${submissionId}]`;
+  console.log(`\n${sub} 💬 Reviewing submission ${submissionId}`);
+
+  const messages = [
+    {
+      role: "user",
+      content: `Please read feedback submission #${submissionId} and leave a short, thoughtful reply thanking the user and engaging with their feedback.`,
+    },
+  ];
+
+  let turn = 0;
+  while (true) {
+    turn++;
+    if (turn > MAX_TURNS) {
+      console.error(`${sub} ❌ Review agent exceeded max turns (${MAX_TURNS}), aborting`);
+      throw new Error(`Review agent exceeded max turns (${MAX_TURNS}) for submission ${submissionId}`);
+    }
+
+    const response = await callWithRetry(
+      () =>
+        client.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 8192,
+          system: REVIEW_PROMPT,
+          tools: toolDefinitions,
+          messages,
+        }),
+      sub
+    );
+
+    console.log(`${sub} 📊 Turn ${turn}: stop_reason=${response.stop_reason}, usage=${JSON.stringify(response.usage)}`);
+
+    messages.push({ role: "assistant", content: response.content });
+
+    if (response.stop_reason === "end_turn") {
+      break;
+    }
+
+    const toolUseBlocks = response.content.filter(
+      (b) => b.type === "tool_use"
+    );
+
+    if (toolUseBlocks.length === 0 && response.stop_reason !== "end_turn") {
+      console.log(
+        `${sub}   ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
+      );
+      messages.push({
+        role: "user",
+        content: "Your response was truncated. Please continue where you left off.",
+      });
+      continue;
+    }
+
+    if (toolUseBlocks.length > 0) {
+      if (response.stop_reason === "max_tokens") {
+        console.log(
+          `${sub}   ⚠️  Response hit max_tokens mid-tool-use, executing complete tool blocks and prompting continuation`
+        );
+      }
+
+      const toolResults = [];
+      for (const toolUse of toolUseBlocks) {
+        console.log(`${sub}   🔧 Tool: ${toolUse.name}`);
+        const result = await executeTool(toolUse.name, toolUse.input);
+        const preview =
+          result.length > 200 ? result.substring(0, 200) + "…" : result;
+        console.log(`${sub}      ↳ ${preview}`);
+
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result,
+        });
+      }
+
+      if (response.stop_reason === "max_tokens") {
+        toolResults.push({
+          type: "text",
+          text: "Note: Your previous response was truncated due to max_tokens. The tool calls above were executed successfully. If you had additional tool calls or actions planned, please continue.",
+        });
+      }
+
+      messages.push({ role: "user", content: toolResults });
+    }
+  }
+
+  console.log(`${sub} ✅ Review comment posted for submission ${submissionId} in ${turn} turns.`);
 }

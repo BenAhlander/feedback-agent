@@ -1,6 +1,6 @@
 import "dotenv/config";
 import express from "express";
-import { runAgent, markSubmissionComplete } from "./agent.js";
+import { runAgent, markSubmissionComplete, reviewSubmission } from "./agent.js";
 
 const app = express();
 app.use(express.json());
@@ -80,6 +80,26 @@ app.post("/webhook/feedback", (req, res) => {
         err
       );
     });
+});
+
+// --- Webhook: new feedback posted ---
+app.post("/webhook/new-feedback", (req, res) => {
+  const secret = req.headers["x-webhook-secret"];
+  if (secret !== WEBHOOK_SECRET) {
+    return res.status(401).json({ error: "Invalid webhook secret" });
+  }
+
+  const { submission_id } = req.body;
+  res.json({ received: true });
+
+  console.log(`\n💬 New feedback webhook received for submission ${submission_id}`);
+
+  reviewSubmission(submission_id).catch((err) => {
+    console.error(
+      `  ❌ Failed to review submission ${submission_id}:`,
+      err
+    );
+  });
 });
 
 // --- Webhook: PR merged ---
