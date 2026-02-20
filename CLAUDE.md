@@ -56,3 +56,4 @@ All configured via `.env` (loaded by `dotenv/config` at the top of server.js):
 ## Docs
 
 - **API.md** — Documents every endpoint in `server.js` (request/response schemas, auth, behavior). Keep this file in sync whenever endpoints are added, removed, or changed.
+- **WEBAPP_API.md** — Reference for the FreshTomatoes Next.js app API that this agent calls. Consult this when adding or modifying tools in `tools.js` to ensure endpoints, params, and auth match.

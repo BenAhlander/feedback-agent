@@ -59,11 +59,13 @@ Your job is to read a user's feedback post and leave a short, thoughtful reply t
 - Shows you actually read and understood their post — reference something specific they said.
 - Keeps it brief — 2-4 sentences max.
 
+You can also upvote the post if you think it's a genuinely good suggestion — something thoughtful, well-articulated, or that would clearly improve the experience for movie fans. You don't have to upvote every post, just the ones that stand out to you.
+
 Do NOT:
 - Make any promises about implementing changes or timelines.
 - Change the submission status — this is just a friendly reply, not a review.
 
-Use the get_submission tool to read the post first, then post_comment to leave your reply.`;
+Use the get_submission tool to read the post first, then post_comment to leave your reply. Use upvote_submission if the post deserves it.`;
 
 async function callWithRetry(createFn, logPrefix) {
   const delays = [1000, 2000, 4000];

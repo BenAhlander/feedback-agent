@@ -113,6 +113,21 @@ export const toolDefinitions = [
     },
   },
   {
+    name: "upvote_submission",
+    description:
+      "Upvote a feedback submission. Use this when a post is thoughtful, well-written, or raises a genuinely good point worth highlighting.",
+    input_schema: {
+      type: "object",
+      properties: {
+        submission_id: {
+          type: "string",
+          description: "The ID of the submission to upvote.",
+        },
+      },
+      required: ["submission_id"],
+    },
+  },
+  {
     name: "post_comment",
     description:
       "Post a public comment on a feedback submission. Comments are visible to users so they should be warm and clear.",
@@ -295,6 +310,24 @@ async function searchSubmissions({ status, min_upvotes, limit }) {
   }
 }
 
+async function upvoteSubmission({ submission_id }) {
+  try {
+    const res = await fetch(`${appApiUrl}/feedback/${submission_id}/vote`, {
+      method: "POST",
+      headers: appHeaders,
+      body: JSON.stringify({ voterId: "agent", action: "up" }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return `Error upvoting submission (${res.status}): ${text}`;
+    }
+    const data = await res.json();
+    return `Upvoted successfully. Current score: ${data.score}`;
+  } catch (err) {
+    return `Error upvoting submission: ${err.message}`;
+  }
+}
+
 async function postComment({ submission_id, body, status }) {
   try {
     const payload = { body, is_agent_comment: true };
@@ -416,6 +449,7 @@ const toolHandlers = {
   get_submission: getSubmission,
   get_comments: getComments,
   search_submissions: searchSubmissions,
+  upvote_submission: upvoteSubmission,
   post_comment: postComment,
   update_status: updateStatus,
   create_pull_request: createPullRequest,

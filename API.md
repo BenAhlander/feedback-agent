@@ -62,7 +62,7 @@ Called when a new feedback post is created. The agent reads the post and leaves 
 **Behavior:**
 
 1. Responds immediately with `{ "received": true }`.
-2. Runs `reviewSubmission` asynchronously — fetches the submission, then posts a warm, short comment (2-4 sentences) that references the user's specific feedback and connects it to the movie-loving experience.
+2. Runs `reviewSubmission` asynchronously — fetches the submission, then posts a warm, short comment (2-4 sentences) that references the user's specific feedback and connects it to the movie-loving experience. May also upvote the post if the agent considers it a genuinely good suggestion.
 
 **Response:**
 
