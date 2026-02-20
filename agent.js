@@ -80,24 +80,55 @@ Please review this submission, explore the codebase, and take appropriate action
       return finalText;
     }
 
-    if (response.stop_reason === "tool_use") {
-      const toolUseBlocks = response.content.filter(
-        (b) => b.type === "tool_use"
+    // Handle max_tokens or unexpected stop reasons — the response may
+    // contain tool_use blocks without a proper stop_reason of "tool_use".
+    // We must still provide tool_result blocks for any tool_use in the response.
+    const toolUseBlocks = response.content.filter(
+      (b) => b.type === "tool_use"
+    );
+
+    if (toolUseBlocks.length === 0 && response.stop_reason !== "end_turn") {
+      // Truncated response with no tool calls — ask the model to continue
+      console.log(
+        `  ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
       );
+      messages.push({
+        role: "user",
+        content: "Your response was truncated. Please continue where you left off.",
+      });
+      continue;
+    }
+
+    if (toolUseBlocks.length > 0) {
+      if (response.stop_reason === "max_tokens") {
+        console.log(
+          `  ⚠️  Response hit max_tokens mid-tool-use, returning errors for incomplete calls`
+        );
+      }
 
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
-        console.log(`  🔧 Tool: ${toolUse.name}`);
-        const result = await executeTool(toolUse.name, toolUse.input);
-        const preview =
-          result.length > 200 ? result.substring(0, 200) + "…" : result;
-        console.log(`     ↳ ${preview}`);
+        if (response.stop_reason === "max_tokens") {
+          // The tool call may be incomplete/malformed — don't execute it
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: "Error: Response was truncated (max_tokens). This tool call may be incomplete. Please retry with a simpler approach or fewer tools at once.",
+            is_error: true,
+          });
+        } else {
+          console.log(`  🔧 Tool: ${toolUse.name}`);
+          const result = await executeTool(toolUse.name, toolUse.input);
+          const preview =
+            result.length > 200 ? result.substring(0, 200) + "…" : result;
+          console.log(`     ↳ ${preview}`);
 
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content: result,
-        });
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: result,
+          });
+        }
       }
 
       messages.push({ role: "user", content: toolResults });
@@ -138,24 +169,44 @@ Please:
       break;
     }
 
-    if (response.stop_reason === "tool_use") {
-      const toolUseBlocks = response.content.filter(
-        (b) => b.type === "tool_use"
-      );
+    const toolUseBlocks = response.content.filter(
+      (b) => b.type === "tool_use"
+    );
 
+    if (toolUseBlocks.length === 0 && response.stop_reason !== "end_turn") {
+      console.log(
+        `  ⚠️  Response truncated (stop_reason: ${response.stop_reason}), prompting continuation`
+      );
+      messages.push({
+        role: "user",
+        content: "Your response was truncated. Please continue where you left off.",
+      });
+      continue;
+    }
+
+    if (toolUseBlocks.length > 0) {
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
-        console.log(`  🔧 Tool: ${toolUse.name}`);
-        const result = await executeTool(toolUse.name, toolUse.input);
-        const preview =
-          result.length > 200 ? result.substring(0, 200) + "…" : result;
-        console.log(`     ↳ ${preview}`);
+        if (response.stop_reason === "max_tokens") {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: "Error: Response was truncated (max_tokens). This tool call may be incomplete. Please retry with a simpler approach or fewer tools at once.",
+            is_error: true,
+          });
+        } else {
+          console.log(`  🔧 Tool: ${toolUse.name}`);
+          const result = await executeTool(toolUse.name, toolUse.input);
+          const preview =
+            result.length > 200 ? result.substring(0, 200) + "…" : result;
+          console.log(`     ↳ ${preview}`);
 
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: toolUse.id,
-          content: result,
-        });
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: result,
+          });
+        }
       }
 
       messages.push({ role: "user", content: toolResults });
