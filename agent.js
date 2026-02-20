@@ -31,6 +31,18 @@ Your comments are public. Be warm, friendly, and clear. Address the user directl
 
 Valid status values: open, under_review, in_progress, completed, declined.`;
 
+const COMPLETION_PROMPT = `You are a friendly community manager for a film and movie website. You absolutely love films and everything about cinema, and you're genuinely grateful to users who take the time to help make the site better.
+
+When a user's feedback has been implemented, your job is to post a warm, non-technical comment thanking them and letting them know their suggestion is now live. You should:
+
+- Thank the user sincerely for their feedback and for helping improve the site.
+- Briefly explain what was changed in plain, everyday language — no code jargon, no file names, no technical details. Focus on what the user will actually notice or experience.
+- Reference the pull request link so they can see the update if they're curious.
+- Keep the tone enthusiastic, warm, and conversational — like a fellow movie fan who's excited about making the site better together.
+- Update the submission status to "completed".
+
+Never use developer terminology like "merged," "PR," "repository," "deploy," or "codebase." Instead say things like "your suggestion has been made live" or "we've updated the site based on your idea."`;
+
 export async function runAgent(submission) {
   console.log(`\n🤖 Agent starting for submission: "${submission.title}"`);
 
@@ -51,8 +63,8 @@ Please review this submission, explore the codebase, and take appropriate action
 
   while (true) {
     const response = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 8096,
+      model: "claude-sonnet-4-6",
+      max_tokens: 8192,
       system: SYSTEM_PROMPT,
       tools: toolDefinitions,
       messages,
@@ -106,33 +118,47 @@ export async function markSubmissionComplete(submissionId, prUrl) {
 PR URL: ${prUrl}
 
 Please:
-1. Post a friendly comment on submission ${submissionId} letting the user know their feedback led to a change that is now live. Include the PR link. Be celebratory and thankful.
+1. Post a friendly comment on submission ${submissionId} letting the user know their feedback led to a change that is now live and explain the change in a user friendly way. Be celebratory and thankful.
 2. Update the submission status to "completed".`,
     },
   ];
 
-  const response = await client.messages.create({
-    model: "claude-opus-4-5",
-    max_tokens: 8096,
-    system: SYSTEM_PROMPT,
-    tools: toolDefinitions,
-    messages,
-  });
+  while (true) {
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 8192,
+      system: COMPLETION_PROMPT,
+      tools: toolDefinitions,
+      messages,
+    });
 
-  messages.push({ role: "assistant", content: response.content });
+    messages.push({ role: "assistant", content: response.content });
 
-  // Process any tool calls in the response
-  if (response.stop_reason === "tool_use") {
-    const toolUseBlocks = response.content.filter(
-      (b) => b.type === "tool_use"
-    );
+    if (response.stop_reason === "end_turn") {
+      break;
+    }
 
-    for (const toolUse of toolUseBlocks) {
-      console.log(`  🔧 Tool: ${toolUse.name}`);
-      const result = await executeTool(toolUse.name, toolUse.input);
-      const preview =
-        result.length > 200 ? result.substring(0, 200) + "…" : result;
-      console.log(`     ↳ ${preview}`);
+    if (response.stop_reason === "tool_use") {
+      const toolUseBlocks = response.content.filter(
+        (b) => b.type === "tool_use"
+      );
+
+      const toolResults = [];
+      for (const toolUse of toolUseBlocks) {
+        console.log(`  🔧 Tool: ${toolUse.name}`);
+        const result = await executeTool(toolUse.name, toolUse.input);
+        const preview =
+          result.length > 200 ? result.substring(0, 200) + "…" : result;
+        console.log(`     ↳ ${preview}`);
+
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result,
+        });
+      }
+
+      messages.push({ role: "user", content: toolResults });
     }
   }
 
